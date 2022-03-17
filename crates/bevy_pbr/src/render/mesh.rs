@@ -7,6 +7,7 @@ use bevy_app::Plugin;
 use bevy_asset::{load_internal_asset, Assets, Handle, HandleUntyped};
 use bevy_ecs::{
     prelude::*,
+    query::QueryItem,
     system::{lifetimeless::*, SystemParamItem},
 };
 use bevy_math::{Mat4, Vec2};
@@ -93,81 +94,52 @@ bitflags::bitflags! {
     }
 }
 
+pub type ExtractMeshQuery = (
+    Entity,
+    &'static ComputedVisibility,
+    &'static GlobalTransform,
+    &'static Handle<Mesh>,
+    Option<&'static NotShadowReceiver>,
+);
+type ExtractMeshItem<'w, 's> = QueryItem<'w, 's, ExtractMeshQuery>;
+
 pub fn extract_meshes(
     mut commands: Commands,
-    mut previous_caster_len: Local<usize>,
-    mut previous_not_caster_len: Local<usize>,
-    caster_query: Query<
-        (
-            Entity,
-            &ComputedVisibility,
-            &GlobalTransform,
-            &Handle<Mesh>,
-            Option<&NotShadowReceiver>,
-        ),
-        Without<NotShadowCaster>,
-    >,
-    not_caster_query: Query<
-        (
-            Entity,
-            &ComputedVisibility,
-            &GlobalTransform,
-            &Handle<Mesh>,
-            Option<&NotShadowReceiver>,
-        ),
-        With<NotShadowCaster>,
-    >,
+    mut prev_len_caster: Local<usize>,
+    mut prev_len_not: Local<usize>,
+    caster_query: Query<ExtractMeshQuery, Without<NotShadowCaster>>,
+    not_caster_query: Query<ExtractMeshQuery, With<NotShadowCaster>>,
 ) {
-    let mut caster_values = Vec::with_capacity(*previous_caster_len);
-    for (entity, computed_visibility, transform, handle, not_receiver) in caster_query.iter() {
-        if !computed_visibility.is_visible {
-            continue;
-        }
+    let mesh_bundle = |(entity, _, transform, handle, not_receiver): ExtractMeshItem| {
         let transform = transform.compute_matrix();
-        caster_values.push((
-            entity,
-            (
-                handle.clone_weak(),
-                MeshUniform {
-                    flags: if not_receiver.is_some() {
-                        MeshFlags::empty().bits
-                    } else {
-                        MeshFlags::SHADOW_RECEIVER.bits
-                    },
-                    transform,
-                    inverse_transpose_model: transform.inverse().transpose(),
-                },
-            ),
-        ));
-    }
-    *previous_caster_len = caster_values.len();
-    commands.insert_or_spawn_batch(caster_values);
-
-    let mut not_caster_values = Vec::with_capacity(*previous_not_caster_len);
-    for (entity, computed_visibility, transform, mesh, not_receiver) in not_caster_query.iter() {
-        if !computed_visibility.is_visible {
-            continue;
-        }
-        let transform = transform.compute_matrix();
-        not_caster_values.push((
-            entity,
-            (
-                mesh.clone_weak(),
-                MeshUniform {
-                    flags: if not_receiver.is_some() {
-                        MeshFlags::empty().bits
-                    } else {
-                        MeshFlags::SHADOW_RECEIVER.bits
-                    },
-                    transform,
-                    inverse_transpose_model: transform.inverse().transpose(),
-                },
-                NotShadowCaster,
-            ),
-        ));
-    }
-    *previous_not_caster_len = not_caster_values.len();
-    commands.insert_or_spawn_batch(not_caster_values);
+        let flags = if not_receiver.is_some() {
+            MeshFlags::empty().bits
+        } else {
+            MeshFlags::SHADOW_RECEIVER.bits
+        };
+        let uniform = MeshUniform {
+            flags,
+            transform,
+            inverse_transpose_model: transform.inverse().transpose(),
+        };
+        (entity, (handle.clone_weak(), uniform))
+    };
+    let with_marker = |(entity, (handle, uniform))| (entity, (handle, uniform, NotShadowCaster));
+    let is_visible = |(_, vis, ..): &ExtractMeshItem| vis.is_visible;
+    let mut caster_cmds = Vec::with_capacity(*prev_len_caster);
+    let mut not_caster_cmds = Vec::with_capacity(*prev_len_not);
+    caster_cmds.extend(caster_query.iter().filter(is_visible).map(mesh_bundle));
+    not_caster_cmds.extend(
+        not_caster_query
+            .iter()
+            .filter(is_visible)
+            .map(mesh_bundle)
+            .map(with_marker),
+    );
+    *prev_len_caster = caster_cmds.len();
+    *prev_len_not = not_caster_cmds.len();
+    commands.insert_or_spawn_batch(caster_cmds);
+    commands.insert_or_spawn_batch(not_caster_cmds);
 }
 
 #[derive(Debug, Default)]
