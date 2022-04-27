@@ -101,6 +101,15 @@ pub type ExtractMeshQuery = (
     &'static Handle<Mesh>,
     Option<&'static NotShadowReceiver>,
 );
+// With the following type alias, we compile successfully:
+// type ExtractMeshItem<'w, 's> = (
+//     Entity,
+//     &'w ComputedVisibility,
+//     &'w GlobalTransform,
+//     &'w Handle<Mesh>,
+//     Option<&'w NotShadowReceiver>,
+// );
+// While this triggers the ICE:
 type ExtractMeshItem<'w, 's> = QueryItem<'w, 's, ExtractMeshQuery>;
 
 pub fn extract_meshes(
@@ -128,7 +137,8 @@ pub fn extract_meshes(
     let is_visible = |(_, vis, ..): &ExtractMeshItem| vis.is_visible;
     let mut caster_cmds = Vec::with_capacity(*prev_len_caster);
     let mut not_caster_cmds = Vec::with_capacity(*prev_len_not);
-    caster_cmds.extend(caster_query.iter().filter(is_visible).map(mesh_bundle));
+    let bundle_visible = |item| is_visible(&item).then(|| mesh_bundle(item));
+    caster_cmds.extend(caster_query.iter().filter_map(bundle_visible));
     not_caster_cmds.extend(
         not_caster_query
             .iter()
