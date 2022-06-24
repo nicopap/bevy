@@ -6,12 +6,12 @@ use crate::{
         debug_checked_unreachable, Access, Fetch, FetchState, FilteredAccess, QueryFetch,
         StorageSwitch, WorldQuery, WorldQueryGats,
     },
-    storage::{ComponentSparseSet, Table, Tables},
+    storage::{Table, Tables},
     world::World,
 };
 use bevy_ecs_macros::all_tuples;
-use bevy_ptr::{ThinSlicePtr, UnsafeCellDeref};
-use std::{cell::UnsafeCell, marker::PhantomData};
+use bevy_ptr::UnsafeCellDeref;
+use std::marker::PhantomData;
 
 use super::ReadOnlyWorldQuery;
 
@@ -487,13 +487,7 @@ macro_rules! impl_tick_filter {
         $(#[$fetch_meta])*
         pub struct $fetch_name<'w, T> {
             marker: PhantomData<T>,
-            ticks: StorageSwitch<
-                T,
-                // T::Storage = TableStorage
-                Option<ThinSlicePtr<'w, UnsafeCell<ComponentTicks>>>,
-                // T::Storage = SparseStorage
-                &'w ComponentSparseSet,
-            >,
+            ticks: StorageSwitch<'w, T>,
             last_change_tick: u32,
             change_tick: u32,
         }
@@ -567,12 +561,9 @@ macro_rules! impl_tick_filter {
 
             unsafe fn set_table(&mut self, state: &Self::State, table: &'w Table) {
                 if Self::IS_DENSE {
-                    self.ticks = StorageSwitch::new_table(Some(
+                    self.ticks = StorageSwitch::new_table(
                         table.get_column(state.component_id)
-                                .unwrap_or_else(|| debug_checked_unreachable())
-                                .get_ticks_slice()
-                                .into()
-                    ));
+                    );
                 }
             }
 
@@ -580,11 +571,9 @@ macro_rules! impl_tick_filter {
                 match T::Storage::STORAGE_TYPE {
                     StorageType::Table => {
                         let table = &tables[archetype.table_id()];
-                        self.ticks = StorageSwitch::new_table(Some(
+                        self.ticks = StorageSwitch::new_table(
                             table.get_column(state.component_id)
-                                .unwrap()
-                                .get_ticks_slice().into()
-                        ));
+                        );
                     }
                     StorageType::SparseSet => {},
                 }
@@ -598,7 +587,7 @@ macro_rules! impl_tick_filter {
                             self.ticks
                                 .table()
                                 .unwrap_or_else(|| debug_checked_unreachable())
-                                .get(table_row))
+                                .get_ticks_unchecked(table_row))
                                 .deref(),
                             self.last_change_tick,
                             self.change_tick

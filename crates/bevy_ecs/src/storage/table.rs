@@ -146,6 +146,13 @@ impl Column {
         self.data.get_slice()
     }
 
+    /// # Safety
+    /// The type `T` must be the type of the items in this column, `i` and must be within
+    /// bounds of the underlying table.
+    pub unsafe fn get_unchecked<T>(&self, row: usize) -> &UnsafeCell<T> {
+        self.data.get_unchecked_assuming(row)
+    }
+
     #[inline]
     pub fn get_ticks_slice(&self) -> &[UnsafeCell<ComponentTicks>] {
         &self.ticks
@@ -187,6 +194,16 @@ impl Column {
         for component_ticks in &mut self.ticks {
             component_ticks.get_mut().check_ticks(change_tick);
         }
+    }
+
+    /// # Safety
+    /// The type `T` must be the type of the items in this column, `i` and must be within
+    /// bounds of the underlying table.
+    pub(crate) unsafe fn get_with_ticks_unchecked<T>(
+        &self,
+        row: usize,
+    ) -> (&UnsafeCell<T>, &UnsafeCell<ComponentTicks>) {
+        (self.get_unchecked(row), self.get_ticks_unchecked(row))
     }
 }
 

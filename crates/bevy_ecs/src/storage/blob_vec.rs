@@ -229,6 +229,22 @@ impl BlobVec {
         self.get_ptr().byte_add(index * self.item_layout.size())
     }
 
+    /// Get `T` at `index`. This is slightly faster than `get_unchecked` since
+    /// the stride is evaluated at compile time from `T` rather than dynamically
+    /// based on `self.item_layout`.
+    ///
+    /// # Safety
+    /// It is the caller's responsibility to ensure that `index` is < self.len(),
+    /// and that `T` is stored in the BlobVec.
+    #[inline]
+    pub unsafe fn get_unchecked_assuming<T>(&self, index: usize) -> &T {
+        debug_assert!(index < self.len());
+        debug_assert!(std::mem::size_of::<T>() == self.item_layout.size());
+        let ptr = (self.data.as_ptr() as *mut T).add(index);
+        // SAFE: ptr was taken from a NonNull
+        NonNull::new_unchecked(ptr).as_ref()
+    }
+
     /// # Safety
     /// It is the caller's responsibility to ensure that `index` is < self.len()
     #[inline]
