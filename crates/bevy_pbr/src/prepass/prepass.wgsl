@@ -1,27 +1,6 @@
 #import bevy_pbr::prepass_bindings
 #import bevy_pbr::mesh_functions
-
-// Most of these attributes are not used in the default prepass fragment shader, but they are still needed so we can
-// pass them to custom prepass shaders like pbr_prepass.wgsl.
-struct Vertex {
-    @location(0) position: vec3<f32>,
-
-#ifdef VERTEX_UVS
-    @location(1) uv: vec2<f32>,
-#endif // VERTEX_UVS
-
-#ifdef NORMAL_PREPASS
-    @location(2) normal: vec3<f32>,
-#ifdef VERTEX_TANGENTS
-    @location(3) tangent: vec4<f32>,
-#endif // VERTEX_TANGENTS
-#endif // NORMAL_PREPASS
-
-#ifdef SKINNED
-    @location(4) joint_indices: vec4<u32>,
-    @location(5) joint_weights: vec4<f32>,
-#endif // SKINNED
-}
+#import bevy_pbr::vertex_type
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -83,17 +62,6 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 }
 
 #ifdef PREPASS_FRAGMENT
-struct FragmentInput {
-#ifdef NORMAL_PREPASS
-    @location(1) world_normal: vec3<f32>,
-#endif // NORMAL_PREPASS
-
-#ifdef MOTION_VECTOR_PREPASS
-    @location(3) world_position: vec4<f32>,
-    @location(4) previous_world_position: vec4<f32>,
-#endif // MOTION_VECTOR_PREPASS
-}
-
 struct FragmentOutput {
 #ifdef NORMAL_PREPASS
     @location(0) normal: vec4<f32>,
@@ -105,7 +73,7 @@ struct FragmentOutput {
 }
 
 @fragment
-fn fragment(in: FragmentInput) -> FragmentOutput {
+fn fragment(in: VertexOutput) -> FragmentOutput {
     var out: FragmentOutput;
 
 #ifdef NORMAL_PREPASS

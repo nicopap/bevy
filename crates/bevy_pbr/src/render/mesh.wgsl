@@ -1,30 +1,9 @@
 #import bevy_pbr::mesh_view_bindings
 #import bevy_pbr::mesh_bindings
+#import bevy_pbr::vertex_type
 
 // NOTE: Bindings must come before functions that use them!
 #import bevy_pbr::mesh_functions
-
-struct Vertex {
-#ifdef VERTEX_POSITIONS
-    @location(0) position: vec3<f32>,
-#endif
-#ifdef VERTEX_NORMALS
-    @location(1) normal: vec3<f32>,
-#endif
-#ifdef VERTEX_UVS
-    @location(2) uv: vec2<f32>,
-#endif
-#ifdef VERTEX_TANGENTS
-    @location(3) tangent: vec4<f32>,
-#endif
-#ifdef VERTEX_COLORS
-    @location(4) color: vec4<f32>,
-#endif
-#ifdef SKINNED
-    @location(5) joint_indices: vec4<u32>,
-    @location(6) joint_weights: vec4<f32>,
-#endif
-};
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,

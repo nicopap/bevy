@@ -390,11 +390,12 @@ where
 
         if layout.contains(Mesh::ATTRIBUTE_UV_0) {
             shader_defs.push("VERTEX_UVS".into());
-            vertex_attributes.push(Mesh::ATTRIBUTE_UV_0.at_shader_location(1));
+            vertex_attributes.push(Mesh::ATTRIBUTE_UV_0.at_shader_location(2));
         }
 
         if key.mesh_key.contains(MeshPipelineKey::NORMAL_PREPASS) {
-            vertex_attributes.push(Mesh::ATTRIBUTE_NORMAL.at_shader_location(2));
+            vertex_attributes.push(Mesh::ATTRIBUTE_NORMAL.at_shader_location(1));
+            shader_defs.push("VERTEX_NORMALS".into());
             shader_defs.push("NORMAL_PREPASS".into());
 
             if layout.contains(Mesh::ATTRIBUTE_TANGENT) {
@@ -421,8 +422,8 @@ where
             && layout.contains(Mesh::ATTRIBUTE_JOINT_WEIGHT)
         {
             shader_defs.push("SKINNED".into());
-            vertex_attributes.push(Mesh::ATTRIBUTE_JOINT_INDEX.at_shader_location(4));
-            vertex_attributes.push(Mesh::ATTRIBUTE_JOINT_WEIGHT.at_shader_location(5));
+            vertex_attributes.push(Mesh::ATTRIBUTE_JOINT_INDEX.at_shader_location(5));
+            vertex_attributes.push(Mesh::ATTRIBUTE_JOINT_WEIGHT.at_shader_location(6));
             bind_group_layouts.insert(2, self.skinned_mesh_layout.clone());
         } else {
             bind_group_layouts.insert(2, self.mesh_layout.clone());

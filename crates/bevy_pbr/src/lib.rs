@@ -87,6 +87,8 @@ pub const PBR_AMBIENT_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 2441520459096337034);
 pub const PARALLAX_MAPPING_SHADER_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 17035894873630133905);
+pub const VERTEX_TYPE_HANDLE: HandleUntyped =
+    HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 5641156677711213315);
 
 /// Sets up the entire PBR infrastructure of bevy.
 pub struct PbrPlugin {
@@ -159,6 +161,12 @@ impl Plugin for PbrPlugin {
             app,
             PARALLAX_MAPPING_SHADER_HANDLE,
             "render/parallax_mapping.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            VERTEX_TYPE_HANDLE,
+            "render/vertex_type.wgsl",
             Shader::from_wgsl
         );
 
