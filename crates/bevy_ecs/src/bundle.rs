@@ -822,7 +822,7 @@ impl Bundles {
     }
 
     /// Initializes a new [`BundleInfo`] for a statically known type.
-    pub(crate) fn init_info<'a, T: Bundle>(
+    pub fn init_info<'a, T: Bundle>(
         &'a mut self,
         components: &mut Components,
         storages: &mut Storages,
@@ -851,7 +851,7 @@ impl Bundles {
     ///
     /// Panics if any of the provided [`ComponentId`]s do not exist in the
     /// provided [`Components`].
-    pub(crate) fn init_dynamic_info(
+    pub fn init_dynamic_info(
         &mut self,
         components: &mut Components,
         component_ids: &[ComponentId],

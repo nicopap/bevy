@@ -778,6 +778,11 @@ impl Table {
         self.columns.values()
     }
 
+    /// Iterates over the [`Column`]s of the [`Table`].
+    pub fn iter_ids(&self) -> impl Iterator<Item = (&ComponentId, &Column)> {
+        self.columns.iter()
+    }
+
     /// Clears all of the stored components in the [`Table`].
     pub(crate) fn clear(&mut self) {
         self.entities.clear();

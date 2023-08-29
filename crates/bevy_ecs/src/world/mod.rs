@@ -13,7 +13,7 @@ pub use world_cell::*;
 
 use crate::{
     archetype::{ArchetypeComponentId, ArchetypeId, ArchetypeRow, Archetypes},
-    bundle::{Bundle, BundleInserter, BundleSpawner, Bundles},
+    bundle::{Bundle, BundleInserter, BundleSpawner, Bundles, DynamicBundle},
     change_detection::{MutUntyped, TicksMut},
     component::{Component, ComponentDescriptor, ComponentId, ComponentInfo, Components, Tick},
     entity::{AllocAtWithoutReplacement, Entities, Entity, EntityLocation},
@@ -795,6 +795,17 @@ impl World {
         I::Item: Bundle,
     {
         SpawnBatchIter::new(self, iter.into_iter())
+    }
+    pub unsafe fn spawn_batch_dynamic<I>(
+        &mut self,
+        component_ids: &[ComponentId],
+        iter: I,
+    ) -> SpawnBatchIter<'_, I::IntoIter>
+    where
+        I: IntoIterator,
+        I::Item: DynamicBundle,
+    {
+        SpawnBatchIter::new_dynamic(self, component_ids, iter.into_iter())
     }
 
     /// Retrieves a reference to the given `entity`'s [Component] of the given type.

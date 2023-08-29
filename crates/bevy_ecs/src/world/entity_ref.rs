@@ -45,6 +45,10 @@ impl<'w> EntityRef<'w> {
         Self(cell)
     }
 
+    pub fn world_components(&self) -> &'w Components {
+        self.0.world().components()
+    }
+
     /// Returns the [ID](Entity) of the current entity.
     #[inline]
     #[must_use = "Omit the .id() call if you do not need to store the `Entity` identifier."]
@@ -452,6 +456,12 @@ impl<'w> EntityWorldMut<'w> {
     #[inline]
     pub fn archetype(&self) -> &Archetype {
         &self.world.archetypes[self.location.archetype_id]
+    }
+
+    /// Returns the archetype that the current entity belongs to.
+    #[inline]
+    pub fn world_components(&self) -> &Components {
+        &self.world.components
     }
 
     /// Returns `true` if the current entity has a component of type `T`.

@@ -9,6 +9,7 @@ use bevy_reflect::{impl_reflect_value, ReflectDeserialize, ReflectSerialize, Typ
 mod bundle;
 mod component;
 mod entity_commands;
+mod from_world;
 mod map_entities;
 mod resource;
 

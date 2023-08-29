@@ -1,5 +1,6 @@
 use crate::{
-    bundle::{Bundle, BundleSpawner},
+    bundle::{Bundle, BundleSpawner, DynamicBundle},
+    component::ComponentId,
     entity::Entity,
     world::World,
 };
@@ -12,7 +13,7 @@ use std::iter::FusedIterator;
 pub struct SpawnBatchIter<'w, I>
 where
     I: Iterator,
-    I::Item: Bundle,
+    I::Item: DynamicBundle,
 {
     inner: I,
     spawner: BundleSpawner<'w, 'w>,
@@ -21,10 +22,44 @@ where
 impl<'w, I> SpawnBatchIter<'w, I>
 where
     I: Iterator,
-    I::Item: Bundle,
+    I::Item: DynamicBundle,
 {
+    pub(crate) fn new_dynamic(world: &'w mut World, component_ids: &[ComponentId], iter: I) -> Self
+    where
+        I::Item: DynamicBundle,
+    {
+        // Ensure all entity allocations are accounted for so `self.entities` can realloc if
+        // necessary
+        world.flush();
+
+        let change_tick = world.change_tick();
+
+        let (lower, upper) = iter.size_hint();
+        let length = upper.unwrap_or(lower);
+
+        let (bundle_info, storages) = world
+            .bundles
+            .init_dynamic_info(&mut world.components, component_ids);
+        world.entities.reserve(length as u32);
+        let mut spawner = bundle_info.get_bundle_spawner(
+            &mut world.entities,
+            &mut world.archetypes,
+            &mut world.components,
+            &mut world.storages,
+            change_tick,
+        );
+        spawner.reserve_storage(length);
+
+        Self {
+            inner: iter,
+            spawner,
+        }
+    }
     #[inline]
-    pub(crate) fn new(world: &'w mut World, iter: I) -> Self {
+    pub(crate) fn new(world: &'w mut World, iter: I) -> Self
+    where
+        I::Item: Bundle,
+    {
         // Ensure all entity allocations are accounted for so `self.entities` can realloc if
         // necessary
         world.flush();
@@ -57,7 +92,7 @@ where
 impl<I> Drop for SpawnBatchIter<'_, I>
 where
     I: Iterator,
-    I::Item: Bundle,
+    I::Item: DynamicBundle,
 {
     fn drop(&mut self) {
         for _ in self {}
@@ -67,14 +102,18 @@ where
 impl<I> Iterator for SpawnBatchIter<'_, I>
 where
     I: Iterator,
-    I::Item: Bundle,
+    I::Item: DynamicBundle,
 {
     type Item = Entity;
 
     fn next(&mut self) -> Option<Entity> {
         let bundle = self.inner.next()?;
-        // SAFETY: bundle matches spawner type
-        unsafe { Some(self.spawner.spawn(bundle)) }
+        let entity = self.spawner.entities.alloc();
+        // SAFETY: entity is allocated (but non-existent), `T` matches this BundleInfo's type
+        unsafe {
+            self.spawner.spawn_non_existent(entity, bundle);
+        };
+        Some(entity)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -85,7 +124,7 @@ where
 impl<I, T> ExactSizeIterator for SpawnBatchIter<'_, I>
 where
     I: ExactSizeIterator<Item = T>,
-    T: Bundle,
+    I::Item: DynamicBundle,
 {
     fn len(&self) -> usize {
         self.inner.len()
@@ -95,6 +134,6 @@ where
 impl<I, T> FusedIterator for SpawnBatchIter<'_, I>
 where
     I: FusedIterator<Item = T>,
-    T: Bundle,
+    I::Item: DynamicBundle,
 {
 }
