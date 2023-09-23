@@ -26,6 +26,37 @@ pub mod prelude {
     };
 }
 
+/// A view of a slice as a matrix, use [`VecMatrix::get_row`] to get an individual row.
+#[derive(Clone, Copy, Debug)]
+struct VecMatrix<'a>(&'a [f32]);
+impl<'a> VecMatrix<'a> {
+    /// Get a row at provided `index`, assuming `Self` has provided `width`.
+    ///
+    /// Panics if out of bound.
+    fn row(&self, width: usize, index: usize) -> Row<'a> {
+        let start = width * index;
+        let end = width * (index + 1);
+        Row(&self.0[start..end])
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Row<'a>(&'a [f32]);
+impl<'a> Row<'a> {
+    fn lerp(self, other: Self, lerp: f32) -> impl Iterator<Item = f32> + 'a {
+        let lerp_single = move |(&lhs, &rhs): (&f32, &f32)| lhs + ((rhs - lhs) * lerp);
+        self.0.iter().zip(other.0).map(lerp_single)
+    }
+}
+struct RowMut<'a>(&'a mut [f32]);
+impl<'a> RowMut<'a> {
+    fn set_with_weight(&mut self, values: impl Iterator<Item = f32>, weight: f32) {
+        for (to_set, value) in self.0.iter_mut().zip(values) {
+            *to_set += (value - *to_set) * weight;
+        }
+    }
+}
+
 /// List of keyframes for one of the attribute of a [`Transform`].
 #[derive(Reflect, Clone, Debug)]
 pub enum Keyframes {
@@ -565,28 +596,6 @@ fn run_animation_player(
     }
 }
 
-/// Update `weights` based on weights in `keyframes` at index `key_index`
-/// with a linear interpolation on `key_lerp`.
-///
-/// # Panics
-///
-/// When `key_index * target_count` is larger than `keyframes`
-///
-/// This happens when `keyframes` is not formatted as described in
-/// [`Keyframes::Weights`]. A possible cause is [`AnimationClip`] not being
-/// meant to be used for the [`MorphWeights`] of the entity it's being applied to.
-fn lerp_morph_weights(weights: &mut [f32], key_lerp: f32, keyframes: &[f32], key_index: usize) {
-    let target_count = weights.len();
-    let start = target_count * key_index;
-    let end = target_count * (key_index + 1);
-
-    let zipped = weights.iter_mut().zip(&keyframes[start..end]);
-    for (morph_weight, keyframe) in zipped {
-        let minus_lerp = 1.0 - key_lerp;
-        *morph_weight = (*morph_weight * minus_lerp) + (keyframe * key_lerp);
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn apply_animation(
     weight: f32,
@@ -657,7 +666,11 @@ fn apply_animation(
                         }
                         Keyframes::Weights(keyframes) => {
                             if let Ok(morphs) = &mut morphs {
-                                lerp_morph_weights(morphs.weights_mut(), weight, keyframes, 0);
+                                let keyframes = VecMatrix(&keyframes);
+                                let weights = morphs.weights_mut();
+                                let target_count = weights.len();
+                                let row = keyframes.row(target_count, 0);
+                                RowMut(weights).set_with_weight(row.0.iter().copied(), weight);
                             }
                         }
                     }
@@ -707,7 +720,13 @@ fn apply_animation(
                     }
                     Keyframes::Weights(keyframes) => {
                         if let Ok(morphs) = &mut morphs {
-                            lerp_morph_weights(morphs.weights_mut(), weight, keyframes, step_start);
+                            let morphs = morphs.weights_mut();
+                            let target_count = morphs.len();
+                            let keyframes = VecMatrix(&keyframes);
+                            let row1 = keyframes.row(target_count, step_start);
+                            let row2 = keyframes.row(target_count, step_start + 1);
+                            let lerped = row1.lerp(row2, lerp);
+                            RowMut(morphs).set_with_weight(lerped, weight);
                         }
                     }
                 }
