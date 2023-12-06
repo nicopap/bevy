@@ -15,7 +15,7 @@ use crate::{
     prelude::World,
     query::DebugCheckedUnwrap,
     storage::{SparseSetIndex, SparseSets, Storages, Table, TableRow},
-    world::unsafe_world_cell::UnsafeWorldCell,
+    world::{unsafe_world_cell::UnsafeWorldCell, DeferredWorld},
     TypeIdMap,
 };
 use bevy_ptr::OwningPtr;
@@ -309,19 +309,11 @@ impl BundleInfo {
         if deduped.len() != component_ids.len() {
             // TODO: Replace with `Vec::partition_dedup` once https://github.com/rust-lang/rust/issues/54279 is stabilized
             let mut seen = HashSet::new();
-            let mut dups = Vec::new();
-            for id in component_ids {
-                if !seen.insert(id) {
-                    dups.push(id);
-                }
-            }
-
-            let names = dups
-                .into_iter()
-                .map(|id| {
-                    // SAFETY: the caller ensures component_id is valid.
-                    unsafe { components.get_info_unchecked(id).name() }
-                })
+            let names = component_ids
+                .iter()
+                .filter(|id| !seen.insert(**id))
+                // SAFETY: the caller ensures component_id is valid.
+                .map(|id| unsafe { components.get_info_unchecked(*id).name() })
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -350,7 +342,7 @@ impl BundleInfo {
     /// Returns an iterator over the the [ID](ComponentId) of each component stored in this bundle.
     #[inline]
     pub fn iter_components(&self) -> impl Iterator<Item = ComponentId> + '_ {
-        self.component_ids.iter().cloned()
+        self.component_ids.iter().copied()
     }
 
     /// This writes components from a given [`Bundle`] to the given entity.
@@ -453,37 +445,33 @@ impl BundleInfo {
             archetype_id
         } else {
             let table_id;
-            let table_components;
-            let sparse_set_components;
             // the archetype changes when we add this bundle. prepare the new archetype and storages
-            {
-                let current_archetype = &archetypes[archetype_id];
-                table_components = if new_table_components.is_empty() {
-                    // if there are no new table components, we can keep using this table
-                    table_id = current_archetype.table_id();
-                    current_archetype.table_components().collect()
-                } else {
-                    new_table_components.extend(current_archetype.table_components());
-                    // sort to ignore order while hashing
-                    new_table_components.sort();
-                    // SAFETY: all component ids in `new_table_components` exist
-                    table_id = unsafe {
-                        storages
-                            .tables
-                            .get_id_or_insert(&new_table_components, components)
-                    };
-
-                    new_table_components
+            let current_archetype = &archetypes[archetype_id];
+            let table_components = if new_table_components.is_empty() {
+                // if there are no new table components, we can keep using this table
+                table_id = current_archetype.table_id();
+                current_archetype.table_components().collect()
+            } else {
+                new_table_components.extend(current_archetype.table_components());
+                // sort to ignore order while hashing
+                new_table_components.sort_unstable();
+                // SAFETY: all component ids in `new_table_components` exist
+                table_id = unsafe {
+                    storages
+                        .tables
+                        .get_id_or_insert(&new_table_components, components)
                 };
 
-                sparse_set_components = if new_sparse_set_components.is_empty() {
-                    current_archetype.sparse_set_components().collect()
-                } else {
-                    new_sparse_set_components.extend(current_archetype.sparse_set_components());
-                    // sort to ignore order while hashing
-                    new_sparse_set_components.sort();
-                    new_sparse_set_components
-                };
+                new_table_components
+            };
+
+            let sparse_set_components = if new_sparse_set_components.is_empty() {
+                current_archetype.sparse_set_components().collect()
+            } else {
+                new_sparse_set_components.extend(current_archetype.sparse_set_components());
+                // sort to ignore order while hashing
+                new_sparse_set_components.sort_unstable();
+                new_sparse_set_components
             };
             let new_archetype_id = archetypes.get_id_or_insert(
                 components,
@@ -632,6 +620,21 @@ impl<'w> BundleInserter<'w> {
         let bundle_info = &*self.bundle_info;
         let add_bundle = &*self.add_bundle;
         let archetype = &*self.archetype;
+        let trigger_components = |archetype: &Archetype, mut world: DeferredWorld| {
+            if archetype.has_on_add() {
+                world.trigger_on_add(
+                    entity,
+                    bundle_info
+                        .iter_components()
+                        .zip(add_bundle.bundle_status.iter())
+                        .filter(|(_, &status)| status == ComponentStatus::Added)
+                        .map(|(id, _)| id),
+                );
+            }
+            if archetype.has_on_insert() {
+                world.trigger_on_insert(entity, bundle_info.iter_components());
+            }
+        };
         match &mut self.result {
             InsertBundleResult::SameArchetype => {
                 {
@@ -652,20 +655,7 @@ impl<'w> BundleInserter<'w> {
                     );
                 }
                 // SAFETY: We have no oustanding mutable references to world as they were dropped
-                let mut world = self.world.into_deferred();
-                if archetype.has_on_add() {
-                    world.trigger_on_add(
-                        entity,
-                        bundle_info
-                            .iter_components()
-                            .zip(add_bundle.bundle_status.iter())
-                            .filter(|(_, &status)| status == ComponentStatus::Added)
-                            .map(|(id, _)| id),
-                    );
-                }
-                if archetype.has_on_insert() {
-                    world.trigger_on_insert(entity, bundle_info.iter_components());
-                }
+                trigger_components(archetype, self.world.into_deferred());
                 location
             }
             InsertBundleResult::NewArchetypeSameTable { new_archetype } => {
@@ -709,21 +699,7 @@ impl<'w> BundleInserter<'w> {
                 };
 
                 // SAFETY: We have no oustanding mutable references to world as they were dropped
-                let new_archetype = &**new_archetype;
-                let mut world = self.world.into_deferred();
-                if new_archetype.has_on_add() {
-                    world.trigger_on_add(
-                        entity,
-                        bundle_info
-                            .iter_components()
-                            .zip(add_bundle.bundle_status.iter())
-                            .filter(|(_, &status)| status == ComponentStatus::Added)
-                            .map(|(id, _)| id),
-                    );
-                }
-                if new_archetype.has_on_insert() {
-                    world.trigger_on_insert(entity, bundle_info.iter_components());
-                }
+                trigger_components(&**new_archetype, self.world.into_deferred());
                 new_location
             }
             InsertBundleResult::NewArchetypeNewTable {
@@ -767,16 +743,16 @@ impl<'w> BundleInserter<'w> {
 
                     // if an entity was moved into this entity's table spot, update its table row
                     if let Some(swapped_entity) = move_result.swapped_entity {
+                        // SAFETY: If the swap was successful, swapped_entity must be valid.
                         let swapped_location =
-                            // SAFETY: If the swap was successful, swapped_entity must be valid.
                             unsafe { entities.get(swapped_entity).debug_checked_unwrap() };
-                        let swapped_archetype = if archetype.id() == swapped_location.archetype_id {
-                            archetype
-                        } else if new_archetype.id() == swapped_location.archetype_id {
-                            new_archetype
-                        } else {
+
+                        let swapped_id = swapped_location.archetype_id;
+                        let swapped_archetype = match () {
+                            _ if archetype.id() == swapped_id => archetype,
+                            _ if new_archetype.id() == swapped_id => new_archetype,
                             // SAFETY: the only two borrowed archetypes are above and we just did collision checks
-                            &mut archetypes.archetypes[swapped_location.archetype_id.index()]
+                            _ => &mut archetypes.archetypes[swapped_id.index()],
                         };
 
                         entities.set(
@@ -804,23 +780,8 @@ impl<'w> BundleInserter<'w> {
 
                     new_location
                 };
-
                 // SAFETY: We have no oustanding mutable references to world as they were dropped
-                let new_archetype = &**new_archetype;
-                let mut world = self.world.into_deferred();
-                if new_archetype.has_on_add() {
-                    world.trigger_on_add(
-                        entity,
-                        bundle_info
-                            .iter_components()
-                            .zip(add_bundle.bundle_status.iter())
-                            .filter(|(_, &status)| status == ComponentStatus::Added)
-                            .map(|(id, _)| id),
-                    );
-                }
-                if new_archetype.has_on_insert() {
-                    world.trigger_on_insert(entity, bundle_info.iter_components());
-                }
+                trigger_components(&**new_archetype, self.world.into_deferred());
                 new_location
             }
         }
